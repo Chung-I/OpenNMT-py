@@ -110,3 +110,12 @@ ENV/
 
 # Tensorboard
 runs/
+
+# run files
+**.sh
+
+# results
+results/
+
+# datasets
+speech

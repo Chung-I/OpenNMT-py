@@ -163,11 +163,13 @@ class Optimizer(object):
         self.decay_steps = decay_steps
         self.start_decay = False
         self._step = 0
+        self.momentum = 0.9
         self.betas = [beta1, beta2]
         self.adagrad_accum = adagrad_accum
         self.decay_method = decay_method
         self.warmup_steps = warmup_steps
         self.model_size = model_size
+        self.best_xent = float('inf')
 
     def set_parameters(self, params):
         """ ? """
@@ -180,7 +182,7 @@ class Optimizer(object):
                 else:
                     self.sparse_params.append(p)
         if self.method == 'sgd':
-            self.optimizer = optim.SGD(self.params, lr=self.learning_rate)
+            self.optimizer = optim.SGD(self.params, lr=self.learning_rate, momentum=self.momentum)
         elif self.method == 'adagrad':
             self.optimizer = optim.Adagrad(self.params, lr=self.learning_rate)
             for group in self.optimizer.param_groups:
@@ -208,6 +210,12 @@ class Optimizer(object):
         else:
             for op in self.optimizer.optimizers:
                 op.param_groups[0]['lr'] = self.learning_rate
+    def maybe_update_lr(self, valid_stats):
+        xent = valid_stats.xent()
+        if xent <= self.best_xent:
+            self.best_xent = xent
+        else:
+            self.learning_rate = self.learning_rate * self.lr_decay
 
     def step(self):
         """Update the model parameters based on current gradients.

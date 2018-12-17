@@ -58,6 +58,7 @@ class AudioDataset(DatasetBase):
         # function in serialization too, which would cause a problem when
         # `torch.save()`. Thus we materialize it as a list.
         out_examples = list(out_examples)
+        print("number of examples: {}".format(len(out_examples)))
 
         def filter_pred(example):
             """    ?    """
@@ -110,6 +111,7 @@ class AudioDataset(DatasetBase):
         global torchaudio, librosa, np
         import torchaudio
         import librosa
+        from librosa import ParameterError
         import numpy as np
 
         sound, sample_rate_ = torchaudio.load(audio_path)
@@ -131,18 +133,27 @@ class AudioDataset(DatasetBase):
         n_fft = int(sample_rate * window_size)
         win_length = n_fft
         hop_length = int(sample_rate * window_stride)
+        n_mfcc = 13
         # STFT
-        d = librosa.stft(sound, n_fft=n_fft, hop_length=hop_length,
-                         win_length=win_length, window=window)
-        spect, _ = librosa.magphase(d)
-        spect = np.log1p(spect)
-        spect = torch.FloatTensor(spect)
+        mfccs = librosa.feature.mfcc(sound, sample_rate, n_mfcc=n_mfcc, hop_length=hop_length, n_fft=n_fft)
+        mfccs[0] = librosa.feature.rmse(sound, hop_length=hop_length)
+
+        floor = 1.0e-10
         if normalize_audio:
-            mean = spect.mean()
-            std = spect.std()
-            spect.add_(-mean)
-            spect.div_(std)
-        return spect
+            mean = np.mean(mfccs, axis=-1).reshape(n_mfcc, 1)
+            std = np.std(mfccs, axis=-1).reshape(n_mfcc, 1)
+            std[std < floor] = floor
+            mfccs = np.subtract(mfccs, mean)
+            mfccs = np.divide(mfccs, std)
+        try:
+            deltas = librosa.feature.delta(mfccs)
+            delta2s = librosa.feature.delta(mfccs, order=2)
+            spect = np.vstack([mfccs, deltas, delta2s])
+            spect = torch.FloatTensor(spect)
+            return spect
+        except ParameterError:
+            print("number of frames {} < {}, discarding example !".format(mfccs.shape[1], 9))
+            return None
 
     @staticmethod
     def read_audio_file(path, src_dir, side, sample_rate, window_size,
@@ -182,6 +193,8 @@ class AudioDataset(DatasetBase):
                                                       truncate, window_size,
                                                       window_stride, window,
                                                       normalize_audio)
+                if spect is None:
+                    continue
 
                 example_dict = {side: spect,
                                 side + '_path': line.strip(),

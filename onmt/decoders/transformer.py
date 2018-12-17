@@ -263,3 +263,130 @@ class TransformerDecoder(nn.Module):
                 layer_cache["self_keys"] = None
                 layer_cache["self_values"] = None
             self.state["cache"]["layer_{}".format(l)] = layer_cache
+
+
+class AudioTransformerDecoder(nn.Module):
+    """
+    TransformerDecoder for speech.
+    For other descriptions, see above.
+    """
+
+    def __init__(self, num_layers, d_model, heads, d_ff, attn_type,
+                 copy_attn, self_attn_type, dropout, embeddings):
+        super(AudioTransformerDecoder, self).__init__()
+
+        # Basic attributes.
+        self.decoder_type = 'transformer'
+        self.num_layers = num_layers
+        self.embeddings = embeddings
+        self.self_attn_type = self_attn_type
+
+        # Decoder State
+        self.state = {}
+
+        # Build TransformerDecoder.
+        self.transformer_layers = nn.ModuleList(
+            [TransformerDecoderLayer(d_model, heads, d_ff, dropout,
+             self_attn_type=self_attn_type)
+             for _ in range(num_layers)])
+
+        # TransformerDecoder has its own attention mechanism.
+        # Set up a separated copy attention layer, if needed.
+        self._copy = False
+        if copy_attn:
+            self.copy_attn = onmt.modules.GlobalAttention(
+                d_model, attn_type=attn_type)
+            self._copy = True
+        self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
+
+    def init_state(self, src, memory_bank, enc_hidden):
+        """ Init decoder state """
+        self.state["src"] = src
+        self.state["cache"] = None
+
+    def map_state(self, fn):
+        def _recursive_map(struct, batch_dim=0):
+            for k, v in struct.items():
+                if v is not None:
+                    if isinstance(v, dict):
+                        _recursive_map(v)
+                    else:
+                        struct[k] = fn(v, batch_dim)
+
+        self.state["src"] = fn(self.state["src"], 1)
+        if self.state["cache"] is not None:
+            _recursive_map(self.state["cache"])
+
+    def detach_state(self):
+        self.state["src"] = self.state["src"].detach()
+
+    def forward(self, tgt, memory_bank, memory_lengths=None, step=None):
+        """
+        See :obj:`onmt.modules.RNNDecoderBase.forward()`
+        """
+        if step == 0:
+            self._init_cache(memory_bank, self.num_layers, self.self_attn_type)
+
+        tgt_words = tgt[:, :, 0].transpose(0, 1)
+
+        # Initialize return variables.
+        dec_outs = []
+        attns = {"std": []}
+        if self._copy:
+            attns["copy"] = []
+
+        # Run the forward pass of the TransformerDecoder.
+        emb = self.embeddings(tgt, step=step)
+        assert emb.dim() == 3  # len x batch x embedding_dim
+
+        output = emb.transpose(0, 1).contiguous()
+        src_memory_bank = memory_bank.transpose(0, 1).contiguous()
+
+        pad_idx = self.embeddings.word_padding_idx
+        seqs = [torch.arange(0, torch.max(memory_lengths.cpu())).lt(l).unsqueeze(0) for l in memory_lengths.cpu()]
+        src_pad_mask = torch.cat(seqs, dim=0).unsqueeze(1).cuda()
+        tgt_pad_mask = tgt_words.data.eq(pad_idx).unsqueeze(1)  # [B, 1, T_tgt]
+
+        for i in range(self.num_layers):
+            output, attn = self.transformer_layers[i](
+                output,
+                src_memory_bank,
+                src_pad_mask,
+                tgt_pad_mask,
+                layer_cache=(
+                    self.state["cache"]["layer_{}".format(i)]
+                    if step is not None else None),
+                step=step)
+
+        output = self.layer_norm(output)
+
+        # Process the result and update the attentions.
+        dec_outs = output.transpose(0, 1).contiguous()
+        attn = attn.transpose(0, 1).contiguous()
+
+        attns["std"] = attn
+        if self._copy:
+            attns["copy"] = attn
+
+        # TODO change the way attns is returned dict => list or tuple (onnx)
+        return dec_outs, attns
+
+    def _init_cache(self, memory_bank, num_layers, self_attn_type):
+        self.state["cache"] = {}
+        batch_size = memory_bank.size(1)
+        depth = memory_bank.size(-1)
+
+        for l in range(num_layers):
+            layer_cache = {
+                "memory_keys": None,
+                "memory_values": None
+            }
+            if self_attn_type == "scaled-dot":
+                layer_cache["self_keys"] = None
+                layer_cache["self_values"] = None
+            elif self_attn_type == "average":
+                layer_cache["prev_g"] = torch.zeros((batch_size, 1, depth))
+            else:
+                layer_cache["self_keys"] = None
+                layer_cache["self_values"] = None
+            self.state["cache"]["layer_{}".format(l)] = layer_cache

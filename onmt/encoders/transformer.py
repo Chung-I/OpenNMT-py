@@ -1,7 +1,9 @@
 """
 Implementation of "Attention is All You Need"
 """
+import math
 
+import torch
 import torch.nn as nn
 
 import onmt
@@ -112,3 +114,41 @@ class TransformerEncoder(EncoderBase):
         out = self.layer_norm(out)
 
         return emb, out.transpose(0, 1).contiguous(), lengths
+
+
+class AudioTransformerEncoder(EncoderBase):
+    """
+    TransformerEncoder for speech.
+    For other descriptions, see above.
+    """
+
+    def __init__(self, num_layers, d_model, heads, d_ff,
+                 dropout, sample_rate, window_size):
+        super(AudioTransformerEncoder, self).__init__()
+
+        self.num_layers = num_layers
+        input_size = int(math.floor((sample_rate * window_size) / 2) + 1)
+        self.linear = nn.Linear(input_size, d_model, bias=False)
+
+        self.transformer = nn.ModuleList(
+            [TransformerEncoderLayer(d_model, heads, d_ff, dropout)
+             for _ in range(num_layers)])
+        self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
+
+    def forward(self, src, lengths=None):
+        """ See :obj:`EncoderBase.forward()`"""
+        src = src.squeeze()
+        src = src.permute(2, 0, 1)
+        self._check_args(src, lengths)
+        seqs = [torch.arange(0, torch.max(lengths), device=src.device).lt(l).unsqueeze(0)
+                for l in lengths]
+        mask = torch.cat(seqs, dim=0).unsqueeze(1)
+        src = self.linear(src)
+
+        out = src.transpose(0, 1).contiguous()
+        # Run the forward pass of every layer of the tranformer.
+        for i in range(self.num_layers):
+            out = self.transformer[i](out, mask)
+        out = self.layer_norm(out)
+
+        return src, out.transpose(0, 1).contiguous(), lengths

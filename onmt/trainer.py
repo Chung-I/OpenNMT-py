@@ -138,6 +138,7 @@ class Trainer(object):
 
         total_stats = onmt.utils.Statistics()
         report_stats = onmt.utils.Statistics()
+        valid_stats = None
         self._start_report_manager(start_time=total_stats.start_time)
 
         while step <= train_steps:
@@ -192,14 +193,15 @@ class Trainer(object):
                                 logger.info('GpuRank %d: gather valid stat \
                                             step %d' % (self.gpu_rank, step))
                             valid_stats = self._maybe_gather_stats(valid_stats)
+                            self.optim.maybe_update_lr(valid_stats)
                             if self.gpu_verbose_level > 0:
                                 logger.info('GpuRank %d: report stat step %d'
                                             % (self.gpu_rank, step))
                             self._report_step(self.optim.learning_rate,
                                               step, valid_stats=valid_stats)
 
-                        if self.gpu_rank == 0:
-                            self._maybe_save(step)
+                            if self.gpu_rank == 0:
+                                self._maybe_save(valid_stats, step)
                         step += 1
                         if step > train_steps:
                             break
@@ -365,9 +367,9 @@ class Trainer(object):
                 learning_rate, step, train_stats=train_stats,
                 valid_stats=valid_stats)
 
-    def _maybe_save(self, step):
+    def _maybe_save(self, valid_stats, step):
         """
         Save the model if a model saver is set
         """
         if self.model_saver is not None:
-            self.model_saver.maybe_save(step)
+            self.model_saver.maybe_save(valid_stats, step)

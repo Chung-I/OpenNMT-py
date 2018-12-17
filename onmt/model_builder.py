@@ -10,14 +10,14 @@ from torch.nn.init import xavier_uniform_
 import onmt.inputters as inputters
 import onmt.modules
 from onmt.encoders.rnn_encoder import RNNEncoder
-from onmt.encoders.transformer import TransformerEncoder
+from onmt.encoders.transformer import TransformerEncoder, AudioTransformerEncoder
 from onmt.encoders.cnn_encoder import CNNEncoder
 from onmt.encoders.mean_encoder import MeanEncoder
 from onmt.encoders.audio_encoder import AudioEncoder
 from onmt.encoders.image_encoder import ImageEncoder
 
 from onmt.decoders.decoder import InputFeedRNNDecoder, StdRNNDecoder
-from onmt.decoders.transformer import TransformerDecoder
+from onmt.decoders.transformer import TransformerDecoder, AudioTransformerDecoder
 from onmt.decoders.cnn_decoder import CNNDecoder
 
 from onmt.modules import Embeddings, CopyGenerator
@@ -92,11 +92,14 @@ def build_decoder(opt, embeddings):
         embeddings (Embeddings): vocab embeddings for this decoder.
     """
     if opt.decoder_type == "transformer":
-        return TransformerDecoder(opt.dec_layers, opt.dec_rnn_size,
-                                  opt.heads, opt.transformer_ff,
-                                  opt.global_attention, opt.copy_attn,
-                                  opt.self_attn_type,
-                                  opt.dropout, embeddings)
+        model = TransformerDecoder
+        if opt.model_type == "audio":
+            model = AudioTransformerDecoder
+        return model(opt.dec_layers, opt.dec_rnn_size,
+                     opt.heads, opt.transformer_ff,
+                     opt.global_attention, opt.copy_attn,
+                     opt.self_attn_type,
+                     opt.dropout, embeddings)
     elif opt.decoder_type == "cnn":
         return CNNDecoder(opt.dec_layers, opt.dec_rnn_size,
                           opt.global_attention, opt.copy_attn,
@@ -186,16 +189,21 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None):
                                model_opt.dropout,
                                image_channel_size)
     elif model_opt.model_type == "audio":
-        encoder = AudioEncoder(model_opt.rnn_type,
-                               model_opt.enc_layers,
-                               model_opt.dec_layers,
-                               model_opt.brnn,
-                               model_opt.enc_rnn_size,
-                               model_opt.dec_rnn_size,
-                               model_opt.audio_enc_pooling,
-                               model_opt.dropout,
-                               model_opt.sample_rate,
-                               model_opt.window_size)
+        if model_opt.encoder_type == "transformer":
+            encoder = AudioTransformerEncoder(model_opt.enc_layers, model_opt.enc_rnn_size,
+                                              model_opt.heads, model_opt.transformer_ff, model_opt.dropout,
+                                              model_opt.sample_rate, model_opt.window_size)
+        else:
+            encoder = AudioEncoder(model_opt.rnn_type,
+                                   model_opt.enc_layers,
+                                   model_opt.dec_layers,
+                                   model_opt.brnn,
+                                   model_opt.enc_rnn_size,
+                                   model_opt.dec_rnn_size,
+                                   model_opt.audio_enc_pooling,
+                                   model_opt.dropout,
+                                   model_opt.sample_rate,
+                                   model_opt.window_size)
 
     # Build decoder.
     tgt_dict = fields["tgt"].vocab

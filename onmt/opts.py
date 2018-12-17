@@ -22,10 +22,10 @@ def model_opts(parser):
     # Embedding Options
     group = parser.add_argument_group('Model-Embeddings')
     group.add('--src_word_vec_size', '-src_word_vec_size',
-              type=int, default=500,
+              type=int, default=512,
               help='Word embedding size for src.')
     group.add('--tgt_word_vec_size', '-tgt_word_vec_size',
-              type=int, default=500,
+              type=int, default=512,
               help='Word embedding size for tgt.')
     group.add('--word_vec_size', '-word_vec_size', type=int, default=-1,
               help='Word embedding size for src and tgt.')
@@ -85,11 +85,11 @@ def model_opts(parser):
     group.add('--rnn_size', '-rnn_size', type=int, default=-1,
               help="""Size of rnn hidden states. Overwrites
                        enc_rnn_size and dec_rnn_size""")
-    group.add('--enc_rnn_size', '-enc_rnn_size', type=int, default=500,
+    group.add('--enc_rnn_size', '-enc_rnn_size', type=int, default=512,
               help="""Size of encoder rnn hidden states.
                        Must be equal to dec_rnn_size except for
                        speech-to-text.""")
-    group.add('--dec_rnn_size', '-dec_rnn_size', type=int, default=500,
+    group.add('--dec_rnn_size', '-dec_rnn_size', type=int, default=512,
               help="""Size of decoder rnn hidden states.
                        Must be equal to enc_rnn_size except for
                        speech-to-text.""")
@@ -289,9 +289,9 @@ def train_opts(parser):
                        of steps""")
 
     group.add('--save_checkpoint_steps', '-save_checkpoint_steps',
-              type=int, default=5000,
+              type=int, default=10000,
               help="""Save a checkpoint every X steps""")
-    group.add('--keep_checkpoint', '-keep_checkpoint', type=int, default=-1,
+    group.add('--keep_checkpoint', '-keep_checkpoint', type=int, default=3,
               help="""Keep X checkpoints (negative: keep all)""")
 
     # GPU
@@ -434,10 +434,10 @@ def train_opts(parser):
                        validation set or (ii) steps have gone past
                        start_decay_steps""")
     group.add('--start_decay_steps', '-start_decay_steps',
-              type=int, default=50000,
+              type=int, default=1000000,
               help="""Start decaying every decay_steps after
                        start_decay_steps""")
-    group.add('--decay_steps', '-decay_steps', type=int, default=10000,
+    group.add('--decay_steps', '-decay_steps', type=int, default=500000,
               help="""Decay every decay_steps""")
 
     group.add('--decay_method', '-decay_method', type=str, default="none",
@@ -597,7 +597,7 @@ def translate_opts(parser):
     group = parser.add_argument_group('Speech')
     group.add('--sample_rate', '-sample_rate', type=int, default=16000,
               help="Sample rate.")
-    group.add('--window_size', '-window_size', type=float, default=.02,
+    group.add('--window_size', '-window_size', type=float, default=.025,
               help='Window size for spectrogram in seconds')
     group.add('--window_stride', '-window_stride', type=float, default=.01,
               help='Window stride for spectrogram in seconds')

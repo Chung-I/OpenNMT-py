@@ -15,6 +15,7 @@ def build_model_saver(model_opt, opt, model, fields, optim):
                              fields,
                              optim,
                              opt.save_checkpoint_steps,
+                             opt.valid_steps,
                              opt.keep_checkpoint)
     return model_saver
 
@@ -28,7 +29,7 @@ class ModelSaverBase(object):
     """
 
     def __init__(self, base_path, model, model_opt, fields, optim,
-                 save_checkpoint_steps, keep_checkpoint=-1):
+                 save_checkpoint_steps, valid_steps, keep_checkpoint=-1):
         self.base_path = base_path
         self.model = model
         self.model_opt = model_opt
@@ -36,11 +37,12 @@ class ModelSaverBase(object):
         self.optim = optim
         self.keep_checkpoint = keep_checkpoint
         self.save_checkpoint_steps = save_checkpoint_steps
+        self.valid_steps = valid_steps
 
         if keep_checkpoint > 0:
-            self.checkpoint_queue = deque([], maxlen=keep_checkpoint)
+            self.checkpoint_queue = []
 
-    def maybe_save(self, step):
+    def maybe_save(self, valid_stats, step):
         """
         Main entry point for model saver
         It wraps the `_save` method with checks and apply `keep_checkpoint`
@@ -49,16 +51,19 @@ class ModelSaverBase(object):
         if self.keep_checkpoint == 0:
             return
 
-        if step % self.save_checkpoint_steps != 0:
+        if step % self.save_checkpoint_steps != 0 or step % self.valid_steps != 0:
             return
 
+        xent = valid_stats.xent()
         chkpt, chkpt_name = self._save(step)
 
         if self.keep_checkpoint > 0:
-            if len(self.checkpoint_queue) == self.checkpoint_queue.maxlen:
-                todel = self.checkpoint_queue.popleft()
+            self.checkpoint_queue.append((chkpt_name, xent))
+            self.checkpoint_queue = sorted(self.checkpoint_queue, key = lambda pair: pair[1])
+            if len(self.checkpoint_queue) == self.keep_checkpoint + 1:
+                todel, _ = self.checkpoint_queue.pop()
                 self._rm_checkpoint(todel)
-            self.checkpoint_queue.append(chkpt_name)
+
 
     def _save(self, step):
         """ Save a resumable checkpoint.
@@ -89,10 +94,10 @@ class ModelSaver(ModelSaverBase):
     """
 
     def __init__(self, base_path, model, model_opt, fields, optim,
-                 save_checkpoint_steps, keep_checkpoint=0):
+                 save_checkpoint_steps, valid_steps, keep_checkpoint=0):
         super(ModelSaver, self).__init__(
             base_path, model, model_opt, fields, optim,
-            save_checkpoint_steps, keep_checkpoint)
+            save_checkpoint_steps, valid_steps, keep_checkpoint)
 
     def _save(self, step):
         real_model = (self.model.module
